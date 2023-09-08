@@ -7,6 +7,7 @@ use crate::common::*;
 use crate::signal_fts5_tokenize;
 use core::ptr::null_mut;
 use libc::{c_char, c_int, c_uchar, c_void};
+use lindera_analyzer::analyzer::Analyzer;
 
 pub struct Sqlite3 {}
 struct Sqlite3Stmt {}
@@ -376,7 +377,10 @@ pub extern "C" fn fts5_create_signal_tokenizer(
     _n_arg: c_int,
     fts5_tokenizer: *mut *mut Fts5Tokenizer,
 ) -> c_int {
-    let tokenizer = Box::new(Fts5Tokenizer {});
+    let tokenizer = Box::new(Fts5Tokenizer {
+        analyzer: Analyzer::from_slice(include_bytes!("../resources/lindera_ipadic_conf.json"))
+            .unwrap(),
+    });
     unsafe {
         *fts5_tokenizer = Box::into_raw(tokenizer);
     }

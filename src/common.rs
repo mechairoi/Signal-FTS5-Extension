@@ -4,8 +4,11 @@
 //
 
 use libc::{c_char, c_int, c_void};
+use lindera_analyzer::analyzer::Analyzer;
 
-pub struct Fts5Tokenizer {}
+pub struct Fts5Tokenizer {
+    pub analyzer: Analyzer,
+}
 
 // sqlite3.h
 pub const SQLITE_OK: c_int = 0;

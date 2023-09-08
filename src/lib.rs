@@ -12,27 +12,27 @@ mod extension;
 pub use crate::common::*;
 use libc::{c_char, c_int, c_uchar, c_void};
 use unicode_normalization::UnicodeNormalization;
-use unicode_segmentation::UnicodeSegmentation;
 
 #[no_mangle]
 pub extern "C" fn signal_fts5_tokenize(
-    _tokenizer: *mut Fts5Tokenizer,
+    tokenizer: *mut Fts5Tokenizer,
     p_ctx: *mut c_void,
     _flags: c_int,
     p_text: *const c_char,
     n_text: c_int,
     x_token: TokenFunction,
 ) -> c_int {
-    std::panic::catch_unwind(|| {
-        match signal_fts5_tokenize_internal(p_ctx, p_text, n_text, x_token) {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || match signal_fts5_tokenize_internal(tokenizer, p_ctx, p_text, n_text, x_token) {
             Ok(()) => SQLITE_OK,
             Err(code) => code,
-        }
-    })
+        },
+    ))
     .unwrap_or(SQLITE_INTERNAL)
 }
 
 fn signal_fts5_tokenize_internal(
+    tokenizer: *mut Fts5Tokenizer,
     p_ctx: *mut c_void,
     p_text: *const c_char,
     n_text: c_int,
@@ -46,18 +46,26 @@ fn signal_fts5_tokenize_internal(
 
     let mut normalized = String::with_capacity(1024);
 
-    for (off, segment) in input.unicode_word_indices() {
-        normalize_into(segment, &mut normalized);
-        let rc = x_token(
-            p_ctx,
-            0,
-            normalized.as_bytes().as_ptr() as *const c_char,
-            normalized.len() as c_int,
-            off as c_int,
-            (off + segment.len()) as c_int,
-        );
-        if rc != SQLITE_OK {
-            return Err(rc);
+    match unsafe { (*tokenizer).analyzer.analyze(input) } {
+        Ok(tokens) => {
+            for token in tokens {
+                normalize_into(token.text.as_str(), &mut normalized);
+
+                let rc = x_token(
+                    p_ctx,
+                    0,
+                    normalized.as_bytes().as_ptr() as *const c_char,
+                    normalized.len() as c_int,
+                    token.position as c_int,
+                    (token.position + token.text.len()) as c_int,
+                );
+                if rc != SQLITE_OK {
+                    return Err(rc);
+                }
+            }
+        }
+        Err(_) => {
+            return Err(SQLITE_INTERNAL);
         }
     }
 
@@ -86,6 +94,7 @@ fn normalize_into(segment: &str, buf: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lindera_analyzer::analyzer::Analyzer;
 
     #[test]
     fn it_normalizes_segment() {
@@ -117,9 +126,15 @@ mod tests {
 
     #[test]
     fn it_emits_segments() {
-        let input = "hello world! 知识? 안녕 세상";
+        let input = "東京都は雨が降りそうです";
         let mut tokens: Vec<(String, c_int, c_int)> = vec![];
+
+        let mut tokenizer = Fts5Tokenizer {
+            analyzer: Analyzer::from_slice(include_bytes!("../resources/lindera_ipadic_conf.json"))
+                .unwrap(),
+        };
         signal_fts5_tokenize_internal(
+            &mut tokenizer,
             &mut tokens as *mut _ as *mut c_void,
             input.as_bytes().as_ptr() as *const c_char,
             input.len() as i32,
@@ -130,12 +145,11 @@ mod tests {
         assert_eq!(
             tokens,
             [
-                ("hello", 0, 5),
-                ("world", 6, 11),
-                ("知", 13, 16),
-                ("识", 16, 19),
-                ("안녕", 21, 27),
-                ("세상", 28, 34)
+                ("東京", 0, 6),
+                ("都", 1, 4),
+                ("雨", 3, 6),
+                ("降りる", 5, 14),
+                ("そう", 6, 12)
             ]
             .map(|(s, start, end)| (s.to_owned(), start, end))
         );
@@ -146,8 +160,13 @@ mod tests {
         let input = b"\xc3\x28";
         let mut tokens: Vec<(String, c_int, c_int)> = vec![];
 
+        let mut tokenizer = Fts5Tokenizer {
+            analyzer: Analyzer::from_slice(include_bytes!("../resources/lindera_ipadic_conf.json"))
+                .unwrap(),
+        };
         assert_eq!(
             signal_fts5_tokenize_internal(
+                &mut tokenizer,
                 &mut tokens as *mut _ as *mut c_void,
                 input.as_ptr() as *const c_char,
                 input.len() as i32,
