@@ -56,8 +56,8 @@ fn signal_fts5_tokenize_internal(
                     0,
                     normalized.as_bytes().as_ptr() as *const c_char,
                     normalized.len() as c_int,
-                    token.position as c_int,
-                    (token.position + token.text.len()) as c_int,
+                    token.byte_start as c_int,
+                    token.byte_end as c_int,
                 );
                 if rc != SQLITE_OK {
                     return Err(rc);
@@ -146,10 +146,10 @@ mod tests {
             tokens,
             [
                 ("東京", 0, 6),
-                ("都", 1, 4),
-                ("雨", 3, 6),
-                ("降りる", 5, 14),
-                ("そう", 6, 12)
+                ("都", 6, 9),
+                ("雨", 12, 15),
+                ("降りる", 18, 24),
+                ("そう", 24, 30)
             ]
             .map(|(s, start, end)| (s.to_owned(), start, end))
         );
